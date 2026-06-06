@@ -22,7 +22,7 @@ components/intellichlor/
   intellichlor.h / .cpp           # core logic: framing, send queue, RX parser, polling
   sensor.py                       # salt_ppm, water_temp, output_percent, status, error, set_percent
   binary_sensor.py                # fault bits (no_flow, low_salt, ... check_pcb)
-  text_sensor.py                  # version, firmware_version, swg_debug
+  text_sensor.py                  # version, firmware_version
   number/                         # swg_percent (0-100%, the writable output setpoint)
   switch/                         # takeover_mode (enable/disable controller takeover)
   notes.txt                       # raw protocol capture / reverse-engineering notes
@@ -81,7 +81,6 @@ text_sensor:
     intellichlor_id: swg
     version:          { name: "SWG Version" }        # model string, e.g. Intellichlor--60
     firmware_version: { name: "SWG Firmware" }        # cell firmware, e.g. 1.8 (0x16 §5.2)
-    swg_debug:        { name: "SWG Debug" }           # last parsed packet, as a string
 
 number:
   - platform: intellichlor

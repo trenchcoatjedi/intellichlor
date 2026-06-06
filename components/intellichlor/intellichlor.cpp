@@ -353,7 +353,6 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 return false;  // leave the send queue intact so the command retries
             }
 
-            std::string debug = "FullPacket ";
             this->last_recv_timestamp_ = millis();
             
             ESP_LOGD(TAG, "readline_ complete packet RecvBuffer:%i", this->available());
@@ -371,8 +370,6 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                     this->version_ += buffer[i];
                 }
                 ESP_LOGD(TAG, "VersionResp Packet Version:%s", this->version_.c_str());
-                debug += "VersionResp Version:";
-                debug += this->version_;
                 if (this->version_text_sensor_ != nullptr) {
                     this->version_text_sensor_->publish_state(this->version_);
                 }
@@ -382,7 +379,6 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 //log_hex("TempResp", buffer, packet_len, ' ');
                 auto temp = buffer[4];
                 ESP_LOGD(TAG, "TempResp Packet Temp:%i", temp);
-                debug += string_format("TempResp Temp:%i", temp);
 
                 // This is ocassionally 0 for one packet
                 if(temp != 0 && this->water_temp_sensor_ != nullptr)
@@ -398,7 +394,6 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 {
                     auto out_pct = buffer[5];
                     ESP_LOGD(TAG, "StatusResp Output:%i", out_pct);
-                    debug += string_format(" Output:%i", out_pct);
                     if (this->output_percent_sensor_ != nullptr)
                         this->output_percent_sensor_->publish_state(out_pct);
                 }
@@ -406,7 +401,6 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 {
                     auto fw = string_format("%i.%i", buffer[6], buffer[7]);
                     ESP_LOGD(TAG, "StatusResp Firmware:%s", fw.c_str());
-                    debug += string_format(" Fw:%s", fw.c_str());
                     if (this->firmware_version_text_sensor_ != nullptr)
                         this->firmware_version_text_sensor_->publish_state(fw);
                 }
@@ -420,7 +414,6 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 uint16_t saltPPM = buffer[4] * 50;
                 auto errorField = buffer[5];
                 ESP_LOGD(TAG, "SetResp Packet Salt:%u Error:%02X", saltPPM, errorField);
-                debug += string_format("SetResp Salt:%u Error:%02X", saltPPM, errorField);
 
                 // Status/error bitfield decode per protocol §5.4:
                 //   bit0 no flow   bit1 low salt    bit2 very low salt  bit3 high current
@@ -465,14 +458,9 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 // data byte is actually present (footer at pos => data byte exists at pos >= 7).
                 uint8_t status = (pos >= 7) ? buffer[4] : 0;
                 ESP_LOGD(TAG, "TakeoverResp Packet Status:%02X", status);
-                debug += string_format("TakeoverResp Status:%02x", status);
                 if (this->status_sensor_ != nullptr)
                     this->status_sensor_->publish_state(status);
                 
-            }
-
-            if (this->swg_debug_text_sensor_ != nullptr) {
-                this->swg_debug_text_sensor_->publish_state(debug);
             }
 
             if (!this->send_queue_.empty())
