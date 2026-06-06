@@ -16,7 +16,7 @@ from esphome.const import (
 )
 from .. import CONF_INTELLICHLOR_ID, INTELLICHLORComponent, intellichlor_ns
 
-SWGPercentNumber = intellichlor_ns.class_("SWGPercentNumber", number.Number)
+SWGPercentNumber = intellichlor_ns.class_("SWGPercentNumber", number.Number, cg.Component)
 
 
 CONF_SWG_PERCENT = "swg_percent"
@@ -40,5 +40,6 @@ async def to_code(config):
         n = await number.new_number(
             swg_percnt_config, min_value=0, max_value=100, step=1
         )
+        await cg.register_component(n, swg_percnt_config)
         await cg.register_parented(n, config[CONF_INTELLICHLOR_ID])
         cg.add(intellichlor_component.set_swg_percent_number(n))

@@ -181,6 +181,10 @@ raw value is always available via the `error` sensor, so a consumer can decode i
   monitor of the existing controller). With it **on**, the ESP actively asserts the output
   percentage from `swg_percent` every cycle. Changing `swg_percent` or `takeover_mode`
   calls back into `read_all_info()` to push the new state promptly.
+- **`swg_percent` persistence:** `SWGPercentNumber` is a `Component` that flash-backs its
+  value via an `ESPPreferenceObject` (saved in `control()`, restored in `setup()`), so the
+  commanded output % survives a reboot/OTA instead of resetting to 0. Its setup priority is
+  one above the parent's so the restored value is in place before the first poll reads it.
 
 ## Previously-fixed bugs (history / context)
 
