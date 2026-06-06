@@ -141,16 +141,11 @@ void INTELLICHLORComponent::takeover_() {
 
 void INTELLICHLORComponent::set_percent_(uint8_t percent) {
     ESP_LOGD(TAG, "send SetPercent");
-    // 16% requires an extra zero byte of padding, because ...
+    // percent == 16 (0x10) is DLE-stuffed automatically by send_command_ (§3), which
+    // emits the same 10 02 50 11 10 00 83 10 03 the old 16%-only pad byte produced.
     this->last_set_percent_ = percent;
-    if(percent == 16) {
-        uint8_t cmd[4] = {0x50, 0x11, percent, 0x00};
-        this->send_command_(cmd, 4, 3);
-    } else {
-        uint8_t cmd[3] = {0x50, 0x11, percent};
-        this->send_command_(cmd, 3, 3);
-    }
-    
+    uint8_t cmd[3] = {0x50, 0x11, percent};
+    this->send_command_(cmd, 3, 3);
 }
 
 void INTELLICHLORComponent::restart_() {
@@ -191,8 +186,10 @@ void INTELLICHLORComponent::send_command_(const uint8_t *command, int command_le
     ESP_LOGV(TAG, "send_command_ %i: %02X", i, command[i]);
   }
 
+  // DLE byte-stuffing (protocol §3): the framing header (10 02) and footer (10 03) are
+  // emitted literally, but any 0x10 appearing in the ADDR/CMD/DATA/CKS region is escaped
+  // as the two bytes 10 00. The checksum is computed over the *unstuffed* bytes (§4).
   ESP_LOGV(TAG, "send_command_ write_array CMD_FRAME_HEADER 2");
-  //this->write_array(CMD_FRAME_HEADER, 2);
   packet.push_back(CMD_FRAME_HEADER[0]);
   crc += CMD_FRAME_HEADER[0];
 
@@ -202,18 +199,21 @@ void INTELLICHLORComponent::send_command_(const uint8_t *command, int command_le
   if (command != nullptr) {
     for (int i = 0; i < command_len; i++) {
       ESP_LOGV(TAG, "send_command_ write_byte command %i %02X", i, command[i]);
-      //this->write_byte(command[i]);
-      packet.push_back(command[i]);
       crc += command[i];
+      packet.push_back(command[i]);
+      if (command[i] == 0x10) {
+        packet.push_back(0x00);  // stuff
+      }
     }
   }
 
   ESP_LOGV(TAG, "send_command_ write_byte CRC %02X", crc);
-  //this->write_byte(crc);
   packet.push_back(crc);
+  if (crc == 0x10) {
+    packet.push_back(0x00);  // stuff
+  }
 
   ESP_LOGV(TAG, "send_command_ write_array CMD_FRAME_FOOTER 2");
-  //this->write_array(CMD_FRAME_FOOTER, 2);
   packet.push_back(CMD_FRAME_FOOTER[0]);
   packet.push_back(CMD_FRAME_FOOTER[1]);
 
@@ -273,7 +273,10 @@ void INTELLICHLORComponent::log_hex(std::string prefix, uint8_t* bytes, size_t l
 
 bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
     static int pos = 0;
-   
+    // DLE escape state (§3): set when the previous body byte was 0x10 and we are waiting
+    // on the next byte to decide stuffed-data (10 00) vs footer (10 03) vs resync (10 02).
+    static bool esc = false;
+
     if (pos == 0 && readch == 0x10) {
         ESP_LOGV(TAG, "readline_ Good header1");
         buffer[pos] = readch;
@@ -291,13 +294,65 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
         ESP_LOGV(TAG, "readline_ BAD header2");
 
     } else if (pos >= 2 && pos < len - 1) {
-        buffer[pos] = readch;
-        
-        if(buffer[pos] == 0x03 && buffer[pos-1] == 0x10)
+
+        // Body byte. Apply DLE un-stuffing (§3): a body 0x10 is held in `esc`; the next
+        // byte decides whether it was a stuffed data byte (10 00 -> single 0x10), the real
+        // footer (10 03), or a mid-frame resync (10 02). Framing DLEs are never un-stuffed.
+        bool frame_complete = false;
+
+        if (esc) {
+            esc = false;
+            if (readch == 0x00) {
+                // stuffed data byte: collapse 10 00 back to a single 0x10
+                buffer[pos] = 0x10;
+                pos++;
+            } else if (readch == 0x03) {
+                // real footer (10 03). Keep the footer bytes in the buffer so the handler
+                // offsets below (which expect pos to index the trailing 0x03) stay valid.
+                buffer[pos] = 0x10;
+                pos++;
+                buffer[pos] = 0x03;
+                frame_complete = true;
+            } else if (readch == 0x02) {
+                // unexpected STX mid-frame: treat as the start of a fresh frame
+                ESP_LOGW(TAG, "readline_ DLE STX mid-frame, resyncing");
+                buffer[0] = 0x10;
+                buffer[1] = 0x02;
+                pos = 2;
+            } else {
+                ESP_LOGW(TAG, "readline_ bad DLE escape %02X, clearing", readch);
+                pos = 0;
+                for (int i = 0; i < len; i++) buffer[i] = 0x00;
+            }
+        } else if (readch == 0x10) {
+            // hold: could be a stuffed data byte (10 00) or the footer start (10 03)
+            esc = true;
+        } else {
+            buffer[pos] = readch;
+            pos++;
+        }
+
+        if (frame_complete)
         {
 
             auto packet_len = pos + 1;
-            
+
+            // Validate checksum (§4): (sum of bytes from the leading 10 02 through the last
+            // DATA byte) & 0xFF must equal the CKS byte. Layout is [.. CKS][10][03] with the
+            // footer 0x03 at index `pos`, so CKS is buffer[pos-2] and DATA ends at pos-3.
+            uint8_t cks_calc = 0;
+            for (int i = 0; i <= pos - 3; i++) {
+                cks_calc += buffer[i];
+            }
+            uint8_t cks_rx = buffer[pos - 2];
+            if (cks_calc != cks_rx) {
+                ESP_LOGW(TAG, "readline_ bad checksum calc:%02X rx:%02X, dropping frame", cks_calc, cks_rx);
+                pos = 0;
+                esc = false;
+                for (int i = 0; i < len; i++) buffer[i] = 0x00;
+                return false;  // leave the send queue intact so the command retries
+            }
+
             std::string debug = "FullPacket ";
             this->last_recv_timestamp_ = millis();
             
@@ -334,10 +389,31 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 {
                     this->water_temp_sensor_->publish_state(temp);
                 }
-                
+
+                // The 0x16 Status reply (§5.2) also carries the cell's current generation
+                // output % and firmware version. Older/short replies only return temp, so
+                // these are length-guarded (footer 0x03 is at index `pos`): a 2nd data byte
+                // exists when pos >= 8, and the version bytes [6][7] exist when pos >= 10.
+                if(pos >= 8)
+                {
+                    auto out_pct = buffer[5];
+                    ESP_LOGD(TAG, "StatusResp Output:%i", out_pct);
+                    debug += string_format(" Output:%i", out_pct);
+                    if (this->output_percent_sensor_ != nullptr)
+                        this->output_percent_sensor_->publish_state(out_pct);
+                }
+                if(pos >= 10)
+                {
+                    auto fw = string_format("%i.%i", buffer[6], buffer[7]);
+                    ESP_LOGD(TAG, "StatusResp Firmware:%s", fw.c_str());
+                    debug += string_format(" Fw:%s", fw.c_str());
+                    if (this->firmware_version_text_sensor_ != nullptr)
+                        this->firmware_version_text_sensor_->publish_state(fw);
+                }
+
                 ESP_LOGD(TAG, "Got Temp, immidiately try another loop");
                 this->run_again_ = true;
-                
+
             } else if(pos >= 4 && buffer[3] == 0x12 )
             {
                 //log_hex("SetResp", buffer, packet_len, ' ');
@@ -346,19 +422,24 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 ESP_LOGD(TAG, "SetResp Packet Salt:%u Error:%02X", saltPPM, errorField);
                 debug += string_format("SetResp Salt:%u Error:%02X", saltPPM, errorField);
 
-                // Status/error bitfield decode per notes.txt:
-                //   bit0 no flow   bit1 low salt    bit2 high salt    bit3 clean cell
-                //   bit4 high curr  bit5 low volts   bit6 low temp     bit7 check PCB
+                // Status/error bitfield decode per protocol §5.4:
+                //   bit0 no flow   bit1 low salt    bit2 very low salt  bit3 high current
+                //   bit4 clean cell  bit5 low voltage  bit6 cold water   bit7 check PCB*
+                // *bit7 is not in §5.4 but is emitted by real hardware (notes.txt) and kept.
+                // WARNING: bits 3/4 here follow the spec and DIVERGE from the notes.txt
+                // hardware capture (which has bit3=clean cell, bit4=high current, and a real
+                // Error:80 / Check-PCB sample). If a real "clean cell" condition lights up the
+                // high_current entity (or vice versa), revert bits 3/4 to the notes.txt order.
                 if (this->no_flow_binary_sensor_ != nullptr)
                     this->no_flow_binary_sensor_->publish_state(GETBIT8(errorField, 0));
                 if (this->low_salt_binary_sensor_ != nullptr)
                     this->low_salt_binary_sensor_->publish_state(GETBIT8(errorField, 1));
                 if (this->very_low_salt_binary_sensor_ != nullptr)
                     this->very_low_salt_binary_sensor_->publish_state(GETBIT8(errorField, 2));
-                if (this->clean_binary_sensor_ != nullptr)
-                    this->clean_binary_sensor_->publish_state(GETBIT8(errorField, 3));
                 if (this->high_current_binary_sensor_ != nullptr)
-                    this->high_current_binary_sensor_->publish_state(GETBIT8(errorField, 4));
+                    this->high_current_binary_sensor_->publish_state(GETBIT8(errorField, 3));
+                if (this->clean_binary_sensor_ != nullptr)
+                    this->clean_binary_sensor_->publish_state(GETBIT8(errorField, 4));
                 if (this->low_volts_binary_sensor_ != nullptr)
                     this->low_volts_binary_sensor_->publish_state(GETBIT8(errorField, 5));
                 if (this->low_temp_binary_sensor_ != nullptr)
@@ -379,7 +460,10 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
             } else if(pos >= 4 && buffer[3] == 0x01 )
             {
                 //log_hex("TakeoverResp", buffer, packet_len, ' ');
-                auto status = buffer[3];
+                // 0x01 Hello/Ack. Spec §7 shows a single data byte (buffer[4]); some replies
+                // may carry none, in which case buffer[4] is the checksum. Only read it when a
+                // data byte is actually present (footer at pos => data byte exists at pos >= 7).
+                uint8_t status = (pos >= 7) ? buffer[4] : 0;
                 ESP_LOGD(TAG, "TakeoverResp Packet Status:%02X", status);
                 debug += string_format("TakeoverResp Status:%02x", status);
                 if (this->status_sensor_ != nullptr)
@@ -401,19 +485,17 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
             }
 
             pos=0;
+            esc=false;
             for(int i = 0; i < len; i++)
             {
                 buffer[i] = 0x00;
             }
             return true;
-
-
-        } else {
-            pos++;
         }
     } else {
         ESP_LOGW(TAG, "Clearing Buffer after error");
         pos=0;
+        esc=false;
         for(int i = 0; i < len; i++)
         {
             buffer[i] = 0x00;

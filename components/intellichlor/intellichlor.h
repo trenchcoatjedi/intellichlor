@@ -25,11 +25,13 @@ static const uint8_t CMD_FRAME_FOOTER[2] = {0x10, 0x03};
 
 class INTELLICHLORComponent : public PollingComponent, public uart::UARTDevice {
   SUB_TEXT_SENSOR(version)
+  SUB_TEXT_SENSOR(firmware_version)
   SUB_TEXT_SENSOR(swg_debug)
   SUB_SWITCH(takeover_mode)
   SUB_NUMBER(swg_percent)
   SUB_SENSOR(salt_ppm)
   SUB_SENSOR(water_temp)
+  SUB_SENSOR(output_percent)
   SUB_SENSOR(status)
   SUB_SENSOR(error)
   SUB_SENSOR(set_percent)

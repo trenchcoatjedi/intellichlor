@@ -23,6 +23,7 @@ DEPENDENCIES = ["intellichlor"]
 
 CONF_SALT_PPM = "salt_ppm"
 CONF_TEMP = "water_temp"
+CONF_OUTPUT_PERCENT = "output_percent"
 CONF_STATUS = "status"
 CONF_ERROR = "error"
 CONF_SET_PERCENT = "set_percent"
@@ -39,6 +40,9 @@ CONFIG_SCHEMA = cv.Schema(
             device_class=DEVICE_CLASS_TEMPERATURE,
             unit_of_measurement="°F",
             icon=ICON_SIGNAL,
+        ),
+        cv.Optional(CONF_OUTPUT_PERCENT): sensor.sensor_schema(
+            unit_of_measurement=UNIT_PERCENT,
         ),
         cv.Optional(CONF_STATUS): sensor.sensor_schema(
         ),
@@ -58,6 +62,9 @@ async def to_code(config):
     if temp_config := config.get(CONF_TEMP):
         sens = await sensor.new_sensor(temp_config)
         cg.add(intellichlor_component.set_water_temp_sensor(sens))
+    if output_percent_config := config.get(CONF_OUTPUT_PERCENT):
+        sens = await sensor.new_sensor(output_percent_config)
+        cg.add(intellichlor_component.set_output_percent_sensor(sens))
     if status_config := config.get(CONF_STATUS):
         sens = await sensor.new_sensor(status_config)
         cg.add(intellichlor_component.set_status_sensor(sens))
