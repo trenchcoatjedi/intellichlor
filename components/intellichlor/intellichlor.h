@@ -11,6 +11,9 @@
 #include "esphome/core/helpers.h"
 
 #include <map>
+#include <queue>
+#include <tuple>
+#include <vector>
 
 namespace esphome {
 namespace intellichlor {
