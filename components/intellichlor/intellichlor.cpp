@@ -66,38 +66,40 @@ void INTELLICHLORComponent::loop() {
     if(since_last > 100)
     {
         if (!this->send_queue_.empty()) {
-            auto packet = this->send_queue_.front();
+            // Take a reference so the incremented attempt count is persisted
+            // back into the queued entry across loop iterations.
+            auto &packet = this->send_queue_.front();
             auto retries = std::get<0>(packet);
-            auto attempts = std::get<1>(packet);
+            auto attempts = ++std::get<1>(packet);
             auto data = std::get<2>(packet);
 
-            attempts++;
-            
             ESP_LOGD(TAG, "Process Queue Retries:%i Attempt:%i", retries, attempts);
 
             if(attempts > retries)
             {
-                ESP_LOGE(TAG, "No response %i > %i removing from send queue", retries, attempts);
+                ESP_LOGE(TAG, "No response after %i attempt(s), removing from send queue", attempts);
                 this->send_queue_.pop();
             }
-
-            if (this->flow_control_pin_ != nullptr)
+            else
             {
-                ESP_LOGV(TAG, "Enable Send");
-                this->flow_control_pin_->digital_write(true);
-            }
-            
-            ESP_LOGV(TAG, "Sending %i bytes", data->size());
-            this->write_array(data);
-            this->flush();
+                if (this->flow_control_pin_ != nullptr)
+                {
+                    ESP_LOGV(TAG, "Enable Send");
+                    this->flow_control_pin_->digital_write(true);
+                }
 
-            if (this->flow_control_pin_ != nullptr)
-            {
-                ESP_LOGV(TAG, "Disable Send");
-                this->flow_control_pin_->digital_write(false);
+                ESP_LOGV(TAG, "Sending %i bytes", data->size());
+                this->write_array(data);
+                this->flush();
+
+                if (this->flow_control_pin_ != nullptr)
+                {
+                    ESP_LOGV(TAG, "Disable Send");
+                    this->flow_control_pin_->digital_write(false);
+                }
+
+                this->last_command_timestamp_ = millis();
             }
-            
-            this->last_command_timestamp_ = millis();
         }
     }
 
