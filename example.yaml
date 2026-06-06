@@ -1,0 +1,128 @@
+# =============================================================================
+#  Example ESPHome configuration for the IntelliChlor RS-485 component
+#
+#  Drop this component into your own ESPHome project to talk to a Pentair
+#  IntelliChlor / iChlor salt chlorine generator (SWG) over RS-485. The ESP
+#  can passively monitor an existing Pentair controller, or impersonate it
+#  ("takeover mode") to set the chlorine output % directly.
+#
+#  Copy the blocks you need into your device YAML and adjust pins/secrets.
+#  Every entity is optional — delete the ones you don't want.
+# =============================================================================
+
+esphome:
+  name: pool-swg
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG          # bump to VERBOSE to see per-byte RS-485 parsing
+
+api:
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# -----------------------------------------------------------------------------
+#  RS-485 bus to the IntelliChlor cell
+#
+#  The IntelliChlor wire format is 9600 8N1 — parity NONE and stop_bits 1 are
+#  REQUIRED (the component enforces this at validation time).
+# -----------------------------------------------------------------------------
+uart:
+  id: swg_uart
+  tx_pin: GPIO17          # -> RS-485 transceiver DI
+  rx_pin: GPIO18          # <- RS-485 transceiver RO
+  baud_rate: 9600
+  parity: NONE
+  stop_bits: 1
+  # debug:                # OK to dump bus traffic to the log, BUT...
+  #   direction: BOTH
+  #   # !!! Do NOT set `dummy_receiver: true` here. It makes the debug helper
+  #   #     consume the RX bytes itself, starving the intellichlor component so
+  #   #     every poll "times out" while the log still shows clean <<< frames.
+
+# -----------------------------------------------------------------------------
+#  Pull in the component
+#
+#  ESPHome caches external_components; if you don't see updates after a rebuild,
+#  lower `refresh` (or clear .esphome/) so it re-pulls.
+# -----------------------------------------------------------------------------
+external_components:
+  - source: github://wolfson292/intellichlor
+    components: [intellichlor]
+    refresh: 1d
+
+# -----------------------------------------------------------------------------
+#  IntelliChlor hub
+# -----------------------------------------------------------------------------
+intellichlor:
+  id: swg
+  uart_id: swg_uart
+  # flow_control_pin: GPIO8   # optional: DE/!RE pin for a half-duplex RS-485
+  #                           # transceiver (tie DE+!RE together, drive with one GPIO)
+  update_interval: 60s
+
+# -----------------------------------------------------------------------------
+#  Writable controls
+# -----------------------------------------------------------------------------
+number:
+  - platform: intellichlor
+    intellichlor_id: swg
+    swg_percent:
+      name: "SWG Output %"        # chlorine generation setpoint, 0-100%
+                                  # (persisted across reboots/OTA)
+
+switch:
+  - platform: intellichlor
+    intellichlor_id: swg
+    takeover_mode:
+      name: "SWG Takeover"        # ON = ESP drives the cell; OFF = passive monitor
+
+# -----------------------------------------------------------------------------
+#  Sensors
+# -----------------------------------------------------------------------------
+sensor:
+  - platform: intellichlor
+    intellichlor_id: swg
+    salt_ppm:       { name: "SWG Salt PPM" }
+    water_temp:     { name: "SWG Water Temp" }   # reported in °F
+    output_percent: { name: "SWG Output (actual)" }  # cell-reported generation %
+    set_percent:    { name: "SWG Set Percent" }  # last commanded %
+    status:         { name: "SWG Status" }
+    error:          { name: "SWG Error" }        # raw alarm bitmask (see below)
+
+# -----------------------------------------------------------------------------
+#  Fault / alarm bits (decoded from the cell's status byte)
+#
+#  Bit positions follow the protocol spec (docs/IntelliChlor_Protocol.md §5.4).
+#  NOTE: bits 3/4 (high_current / clean) diverge from some hardware captures —
+#  if a real "clean cell" condition lights up "High Current" (or vice versa),
+#  see AGENTS.md. The raw value is always available via the `error` sensor above.
+# -----------------------------------------------------------------------------
+binary_sensor:
+  - platform: intellichlor
+    intellichlor_id: swg
+    no_flow:       { name: "SWG No Flow" }
+    low_salt:      { name: "SWG Low Salt" }
+    very_low_salt: { name: "SWG Very Low Salt" }
+    high_current:  { name: "SWG High Current" }
+    clean:         { name: "SWG Clean Cell" }
+    low_volts:     { name: "SWG Low Volts" }
+    low_temp:      { name: "SWG Cold Water" }
+    check_pcb:     { name: "SWG Check PCB" }
+
+# -----------------------------------------------------------------------------
+#  Text sensors
+# -----------------------------------------------------------------------------
+text_sensor:
+  - platform: intellichlor
+    intellichlor_id: swg
+    version:          { name: "SWG Model" }      # model string, e.g. "Intellichlor--40"
+    firmware_version: { name: "SWG Firmware" }   # cell firmware, e.g. "1.8"
