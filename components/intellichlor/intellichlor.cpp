@@ -346,24 +346,25 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 ESP_LOGD(TAG, "SetResp Packet Salt:%u Error:%02X", saltPPM, errorField);
                 debug += string_format("SetResp Salt:%u Error:%02X", saltPPM, errorField);
 
-                /*
-                this->high_current_binary_sensor_->publish_state(GETBIT8(errorField, 4));
-                this->low_volts_binary_sensor_->publish_state(GETBIT8(errorField, 5));
-                this->check_pcb_binary_sensor_->publish_state(GETBIT8(errorField, 7));
-                */
-
+                // Status/error bitfield decode per notes.txt:
+                //   bit0 no flow   bit1 low salt    bit2 high salt    bit3 clean cell
+                //   bit4 high curr  bit5 low volts   bit6 low temp     bit7 check PCB
                 if (this->no_flow_binary_sensor_ != nullptr)
                     this->no_flow_binary_sensor_->publish_state(GETBIT8(errorField, 0));
                 if (this->low_salt_binary_sensor_ != nullptr)
                     this->low_salt_binary_sensor_->publish_state(GETBIT8(errorField, 1));
                 if (this->very_low_salt_binary_sensor_ != nullptr)
                     this->very_low_salt_binary_sensor_->publish_state(GETBIT8(errorField, 2));
-                // 3 unknown
                 if (this->clean_binary_sensor_ != nullptr)
-                    this->clean_binary_sensor_->publish_state(GETBIT8(errorField, 4));
-                // 5 unknown
+                    this->clean_binary_sensor_->publish_state(GETBIT8(errorField, 3));
+                if (this->high_current_binary_sensor_ != nullptr)
+                    this->high_current_binary_sensor_->publish_state(GETBIT8(errorField, 4));
+                if (this->low_volts_binary_sensor_ != nullptr)
+                    this->low_volts_binary_sensor_->publish_state(GETBIT8(errorField, 5));
                 if (this->low_temp_binary_sensor_ != nullptr)
                     this->low_temp_binary_sensor_->publish_state(GETBIT8(errorField, 6));
+                if (this->check_pcb_binary_sensor_ != nullptr)
+                    this->check_pcb_binary_sensor_->publish_state(GETBIT8(errorField, 7));
 
 
                 if (this->salt_ppm_sensor_ != nullptr)
@@ -386,7 +387,9 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 
             }
 
-            //this->swg_debug_text_sensor_->publish_state(debug);
+            if (this->swg_debug_text_sensor_ != nullptr) {
+                this->swg_debug_text_sensor_->publish_state(debug);
+            }
 
             if (!this->send_queue_.empty())
             {
