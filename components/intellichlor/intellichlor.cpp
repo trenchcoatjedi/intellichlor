@@ -109,7 +109,7 @@ void INTELLICHLORComponent::update() {
 }
 
 void INTELLICHLORComponent::set_swg_percent() {
-    if(this->takeover_mode_switch_->state)
+    if(this->takeover_mode_switch_ != nullptr && this->takeover_mode_switch_->state)
     {
         this->read_all_info();
     }
@@ -166,10 +166,13 @@ void INTELLICHLORComponent::read_all_info() {
         }
         this->run_again_ = false;
         this->last_loop_timestamp_ = millis();
-        if(this->takeover_mode_switch_->state)
+        if(this->takeover_mode_switch_ != nullptr && this->takeover_mode_switch_->state)
         {
             this->takeover_();
-            this->set_percent_(this->swg_percent_number_->state);
+            if(this->swg_percent_number_ != nullptr)
+            {
+                this->set_percent_(this->swg_percent_number_->state);
+            }
         }
         this->get_version_();
         this->get_temp_();
@@ -325,7 +328,7 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 debug += string_format("TempResp Temp:%i", temp);
 
                 // This is ocassionally 0 for one packet
-                if(temp != 0)
+                if(temp != 0 && this->water_temp_sensor_ != nullptr)
                 {
                     this->water_temp_sensor_->publish_state(temp);
                 }
@@ -347,17 +350,24 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 this->check_pcb_binary_sensor_->publish_state(GETBIT8(errorField, 7));
                 */
 
-                this->no_flow_binary_sensor_->publish_state(GETBIT8(errorField, 0));
-                this->low_salt_binary_sensor_->publish_state(GETBIT8(errorField, 1));
-                this->very_low_salt_binary_sensor_->publish_state(GETBIT8(errorField, 2));
+                if (this->no_flow_binary_sensor_ != nullptr)
+                    this->no_flow_binary_sensor_->publish_state(GETBIT8(errorField, 0));
+                if (this->low_salt_binary_sensor_ != nullptr)
+                    this->low_salt_binary_sensor_->publish_state(GETBIT8(errorField, 1));
+                if (this->very_low_salt_binary_sensor_ != nullptr)
+                    this->very_low_salt_binary_sensor_->publish_state(GETBIT8(errorField, 2));
                 // 3 unknown
-                this->clean_binary_sensor_->publish_state(GETBIT8(errorField, 4));
+                if (this->clean_binary_sensor_ != nullptr)
+                    this->clean_binary_sensor_->publish_state(GETBIT8(errorField, 4));
                 // 5 unknown
-                this->low_temp_binary_sensor_->publish_state(GETBIT8(errorField, 6));
+                if (this->low_temp_binary_sensor_ != nullptr)
+                    this->low_temp_binary_sensor_->publish_state(GETBIT8(errorField, 6));
 
 
-                this->salt_ppm_sensor_->publish_state(saltPPM);
-                this->error_sensor_->publish_state(errorField);
+                if (this->salt_ppm_sensor_ != nullptr)
+                    this->salt_ppm_sensor_->publish_state(saltPPM);
+                if (this->error_sensor_ != nullptr)
+                    this->error_sensor_->publish_state(errorField);
 
                 if (this->set_percent_sensor_ != nullptr) {
                     this->set_percent_sensor_->publish_state(this->last_set_percent_);
@@ -369,7 +379,8 @@ bool INTELLICHLORComponent::readline_(int readch, uint8_t *buffer, int len) {
                 auto status = buffer[3];
                 ESP_LOGD(TAG, "TakeoverResp Packet Status:%02X", status);
                 debug += string_format("TakeoverResp Status:%02x", status);
-                this->status_sensor_->publish_state(status);
+                if (this->status_sensor_ != nullptr)
+                    this->status_sensor_->publish_state(status);
                 
             }
 
