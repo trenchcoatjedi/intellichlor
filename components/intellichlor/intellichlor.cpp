@@ -9,6 +9,9 @@ static const char *TAG = "intellichlor.component";
 
 void INTELLICHLORComponent::setup() {
     ESP_LOGCONFIG(TAG, "Setting up Intellichlor...");
+    // Flash slot for the boost end-time. Fixed key — with MULTI_CONF (multiple hubs) the
+    // boost preference would collide; boost persistence assumes a single hub.
+    this->boost_pref_ = global_preferences->make_preference<BoostPref>(0x53574742UL);  // "SWGB"
     this->read_all_info();
     ESP_LOGCONFIG(TAG, "Version : %s", const_cast<char *>(this->version_.c_str()));
     if (this->flow_control_pin_ != nullptr) {
@@ -40,6 +43,13 @@ void INTELLICHLORComponent::loop() {
     // read bytes off the wire first
     while (available()) {
         this->readline_(read(), buffer, max_line_length);
+    }
+
+    // service the boost timer (expiry + remaining countdown) and the one-shot
+    // reboot-resume (which waits until the RTC has a valid time).
+    this->tick_boost_();
+    if (!this->boost_restored_) {
+        this->try_restore_boost_();
     }
 
     if(this->run_again_)
@@ -121,6 +131,134 @@ void INTELLICHLORComponent::set_takeover_mode(bool enable) {
     this->read_all_info();
 }
 
+const char *INTELLICHLORComponent::hours_to_option_(uint8_t hours) {
+    switch (hours) {
+        case 6:  return "6h";
+        case 12: return "12h";
+        case 24: return "24h";
+        case 48: return "48h";
+        default: return "Off";
+    }
+}
+
+void INTELLICHLORComponent::save_boost_pref_() {
+    // Persist the absolute end-time so a reboot/OTA can resume the boost. Needs a valid RTC;
+    // without the time component compiled (no USE_TIME) persistence is simply disabled.
+#ifdef USE_TIME
+    if (this->time_ == nullptr)
+        return;
+    auto now = this->time_->now();
+    if (!now.is_valid())
+        return;
+    BoostPref p{};
+    p.end_epoch = (uint32_t) now.timestamp + (uint32_t) this->boost_hours_ * 3600UL;
+    p.hours = this->boost_hours_;
+    this->boost_pref_.save(&p);
+#endif
+}
+
+void INTELLICHLORComponent::clear_boost_pref_() {
+    BoostPref p{};  // {0, 0}
+    this->boost_pref_.save(&p);
+}
+
+void INTELLICHLORComponent::start_boost(uint8_t hours) {
+    if (hours == 0) {
+        this->cancel_boost();
+        return;
+    }
+    this->boost_hours_ = hours;
+    this->boost_active_ = true;
+    this->boost_end_ms_ = millis() + (uint32_t) hours * 3600UL * 1000UL;
+    this->boost_remaining_pub_ = 0xFFFFFFFF;  // force a remaining republish
+    this->save_boost_pref_();
+    ESP_LOGI(TAG, "Boost started: %u h", hours);
+    if (this->takeover_mode_switch_ == nullptr || !this->takeover_mode_switch_->state) {
+        ESP_LOGW(TAG, "Boost armed but takeover is OFF; it will have no effect until takeover is enabled");
+    }
+    // Push 100% immediately (bypass the ~1s gate) and update the remaining sensor.
+    this->last_loop_timestamp_ = 0;
+    this->read_all_info();
+    if (this->boost_remaining_sensor_ != nullptr) {
+        this->boost_remaining_sensor_->publish_state((uint32_t) hours * 60UL);
+        this->boost_remaining_pub_ = (uint32_t) hours * 60UL;
+    }
+}
+
+void INTELLICHLORComponent::cancel_boost() {
+    bool was_active = this->boost_active_;
+    this->boost_active_ = false;
+    this->boost_hours_ = 0;
+    this->clear_boost_pref_();
+    if (this->swg_boost_select_ != nullptr)
+        this->swg_boost_select_->publish_state("Off");
+    if (this->boost_remaining_sensor_ != nullptr)
+        this->boost_remaining_sensor_->publish_state(0);
+    this->boost_remaining_pub_ = 0;
+    if (was_active) {
+        ESP_LOGI(TAG, "Boost ended; reverting to swg_percent");
+    }
+    // Revert output now (bypass the ~1s gate).
+    this->last_loop_timestamp_ = 0;
+    this->read_all_info();
+}
+
+void INTELLICHLORComponent::tick_boost_() {
+    if (!this->boost_active_)
+        return;
+    uint32_t now = millis();
+    if ((int32_t) (now - this->boost_end_ms_) >= 0) {
+        ESP_LOGD(TAG, "Boost timer expired");
+        this->cancel_boost();
+        return;
+    }
+    if (this->boost_remaining_sensor_ != nullptr) {
+        // round up so a >0 remaining never shows 0
+        uint32_t rem_min = (this->boost_end_ms_ - now + 59999UL) / 60000UL;
+        if (rem_min != this->boost_remaining_pub_) {
+            this->boost_remaining_pub_ = rem_min;
+            this->boost_remaining_sensor_->publish_state(rem_min);
+        }
+    }
+}
+
+void INTELLICHLORComponent::try_restore_boost_() {
+    // Resume a persisted boost once the RTC is valid. Without a time source, persistence is
+    // disabled and any in-RAM boost simply ended at the reboot.
+#ifdef USE_TIME
+    if (this->time_ == nullptr) {
+        this->boost_restored_ = true;
+        return;
+    }
+    auto now = this->time_->now();
+    if (!now.is_valid())
+        return;  // wait for SNTP sync; retried each loop until valid
+    this->boost_restored_ = true;
+    uint32_t now_epoch = (uint32_t) now.timestamp;
+    BoostPref p{};
+    if (this->boost_pref_.load(&p) && p.hours != 0 && p.end_epoch > now_epoch) {
+        uint32_t remaining_s = p.end_epoch - now_epoch;
+        this->boost_active_ = true;
+        this->boost_hours_ = p.hours;
+        this->boost_end_ms_ = millis() + remaining_s * 1000UL;
+        this->boost_remaining_pub_ = 0xFFFFFFFF;
+        if (this->swg_boost_select_ != nullptr)
+            this->swg_boost_select_->publish_state(this->hours_to_option_(p.hours));
+        ESP_LOGI(TAG, "Resumed boost: %u min remaining", remaining_s / 60UL);
+    } else {
+        // nothing to resume — clear any stale entry and show Off
+        if (p.hours != 0 || p.end_epoch != 0)
+            this->clear_boost_pref_();
+        if (this->swg_boost_select_ != nullptr)
+            this->swg_boost_select_->publish_state("Off");
+    }
+#else
+    this->boost_restored_ = true;  // no time component compiled; persistence disabled
+    if (this->swg_boost_select_ != nullptr)
+        this->swg_boost_select_->publish_state("Off");
+#endif
+}
+
 void INTELLICHLORComponent::get_version_() {
     uint8_t cmd[3] = {0x50, 0x14, 0x00};
     ESP_LOGD(TAG, "send GetVersion");
@@ -166,7 +304,12 @@ void INTELLICHLORComponent::read_all_info() {
         if(this->takeover_mode_switch_ != nullptr && this->takeover_mode_switch_->state)
         {
             this->takeover_();
-            if(this->swg_percent_number_ != nullptr)
+            // While a boost is active the cell is driven to 100%, overriding swg_percent.
+            if(this->boost_active_)
+            {
+                this->set_percent_(100);
+            }
+            else if(this->swg_percent_number_ != nullptr)
             {
                 this->set_percent_(this->swg_percent_number_->state);
             }

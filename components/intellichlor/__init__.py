@@ -1,12 +1,14 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import uart
+from esphome.components import time as time_
 from esphome.const import CONF_ID
 from esphome import automation
 from esphome.automation import maybe_simple_id
 from esphome.cpp_helpers import gpio_pin_expression
 from esphome.const import (
     CONF_FLOW_CONTROL_PIN,
+    CONF_TIME_ID,
 )
 from esphome import pins
 
@@ -23,6 +25,10 @@ CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(INTELLICHLORComponent),
         cv.Optional(CONF_FLOW_CONTROL_PIN): pins.gpio_output_pin_schema,
+        # Optional time source. If set, an active "boost" survives a reboot/OTA by
+        # storing its absolute end-time in flash; without it, boost is a millis() timer
+        # that cancels on reboot.
+        cv.Optional(CONF_TIME_ID): cv.use_id(time_.RealTimeClock),
     }
 )
 
@@ -47,6 +53,10 @@ async def to_code(config):
     if CONF_FLOW_CONTROL_PIN in config:
         pin = await gpio_pin_expression(config[CONF_FLOW_CONTROL_PIN])
         cg.add(var.set_flow_control_pin(pin))
+
+    if CONF_TIME_ID in config:
+        clk = await cg.get_variable(config[CONF_TIME_ID])
+        cg.add(var.set_time(clk))
 
 CALIBRATION_ACTION_SCHEMA = maybe_simple_id(
     {

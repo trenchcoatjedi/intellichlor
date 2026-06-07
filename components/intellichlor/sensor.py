@@ -27,6 +27,7 @@ CONF_OUTPUT_PERCENT = "output_percent"
 CONF_STATUS = "status"
 CONF_ERROR = "error"
 CONF_SET_PERCENT = "set_percent"
+CONF_BOOST_REMAINING = "boost_remaining"
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -51,6 +52,11 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_SET_PERCENT): sensor.sensor_schema(
             unit_of_measurement=UNIT_PERCENT,
         ),
+        cv.Optional(CONF_BOOST_REMAINING): sensor.sensor_schema(
+            unit_of_measurement="min",
+            icon="mdi:timer-sand",
+            accuracy_decimals=0,
+        ),
     }
 )
 
@@ -74,4 +80,7 @@ async def to_code(config):
     if set_percent_config := config.get(CONF_SET_PERCENT):
         sens = await sensor.new_sensor(set_percent_config)
         cg.add(intellichlor_component.set_set_percent_sensor(sens))
+    if boost_remaining_config := config.get(CONF_BOOST_REMAINING):
+        sens = await sensor.new_sensor(boost_remaining_config)
+        cg.add(intellichlor_component.set_boost_remaining_sensor(sens))
     

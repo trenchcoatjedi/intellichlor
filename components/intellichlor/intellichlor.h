@@ -6,9 +6,14 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/number/number.h"
+#include "esphome/components/select/select.h"
 #include "esphome/components/uart/uart.h"
+#ifdef USE_TIME
+#include "esphome/components/time/real_time_clock.h"
+#endif
 #include "esphome/core/automation.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/preferences.h"
 
 #include <map>
 #include <queue>
@@ -27,6 +32,7 @@ class INTELLICHLORComponent : public PollingComponent, public uart::UARTDevice {
   SUB_TEXT_SENSOR(version)
   SUB_TEXT_SENSOR(firmware_version)
   SUB_SWITCH(takeover_mode)
+  SUB_SELECT(swg_boost)
   SUB_NUMBER(swg_percent)
   SUB_SENSOR(salt_ppm)
   SUB_SENSOR(water_temp)
@@ -34,6 +40,7 @@ class INTELLICHLORComponent : public PollingComponent, public uart::UARTDevice {
   SUB_SENSOR(status)
   SUB_SENSOR(error)
   SUB_SENSOR(set_percent)
+  SUB_SENSOR(boost_remaining)
   SUB_BINARY_SENSOR(no_flow)
   SUB_BINARY_SENSOR(low_salt)
   SUB_BINARY_SENSOR(very_low_salt)
@@ -54,15 +61,32 @@ class INTELLICHLORComponent : public PollingComponent, public uart::UARTDevice {
   void set_swg_percent();
   void set_takeover_mode(bool enable);
 
+  // Boost: drive the cell to 100% for a fixed number of hours, then revert to swg_percent.
+  void start_boost(uint8_t hours);
+  void cancel_boost();
+
   void set_flow_control_pin(GPIOPin *flow_control_pin) { this->flow_control_pin_ = flow_control_pin; }
+#ifdef USE_TIME
+  void set_time(time::RealTimeClock *clk) { this->time_ = clk; }
+#endif
 
  protected:
   GPIOPin *flow_control_pin_{nullptr};
-  
+#ifdef USE_TIME
+  time::RealTimeClock *time_{nullptr};
+#endif
+
   void get_version_();
   void get_temp_();
   void takeover_();
   void set_percent_(uint8_t percent);
+
+  // Boost helpers
+  void tick_boost_();
+  void try_restore_boost_();
+  void save_boost_pref_();
+  void clear_boost_pref_();
+  const char *hours_to_option_(uint8_t hours);
 
   void restart_();
   void send_command_(const uint8_t *command, int command_len, uint8_t retries);
@@ -86,6 +110,20 @@ class INTELLICHLORComponent : public PollingComponent, public uart::UARTDevice {
   bool run_again_;
 
   std::string version_;
+
+  // Boost state. While active, the takeover poll drives the cell to 100% until
+  // boost_end_ms_; the absolute end-time is mirrored to flash (boost_pref_) so a
+  // reboot can resume it once the RTC is valid.
+  struct BoostPref {
+    uint32_t end_epoch;
+    uint8_t hours;
+  };
+  bool boost_active_ = false;
+  uint32_t boost_end_ms_ = 0;
+  uint8_t boost_hours_ = 0;
+  uint32_t boost_remaining_pub_ = 0xFFFFFFFF;  // last published minutes (force first publish)
+  bool boost_restored_ = false;                // one-shot reboot-resume guard
+  ESPPreferenceObject boost_pref_;
 
 };
 

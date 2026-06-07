@@ -29,6 +29,12 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
 
+# A time source is optional, but lets the "boost" feature survive a reboot/OTA
+# (the boost end-time is stored in flash as an absolute timestamp).
+time:
+  - platform: sntp
+    id: sntp_time
+
 # -----------------------------------------------------------------------------
 #  RS-485 bus to the IntelliChlor cell
 #
@@ -67,6 +73,7 @@ intellichlor:
   uart_id: swg_uart
   # flow_control_pin: GPIO8   # optional: DE/!RE pin for a half-duplex RS-485
   #                           # transceiver (tie DE+!RE together, drive with one GPIO)
+  time_id: sntp_time          # optional: enables boost persistence across reboot
   update_interval: 60s
 
 # -----------------------------------------------------------------------------
@@ -85,6 +92,20 @@ switch:
     takeover_mode:
       name: "SWG Takeover"        # ON = ESP drives the cell; OFF = passive monitor
 
+# Boost: temporarily run the cell at 100% for a fixed time, then auto-revert to
+# swg_percent. Boost only drives the cell while Takeover is ON.
+select:
+  - platform: intellichlor
+    intellichlor_id: swg
+    swg_boost:
+      name: "SWG Boost"           # options: Off / 6h / 12h / 24h / 48h
+
+button:
+  - platform: intellichlor
+    intellichlor_id: swg
+    end_boost:
+      name: "SWG End Boost"       # cancel an active boost early (same as selecting "Off")
+
 # -----------------------------------------------------------------------------
 #  Sensors
 # -----------------------------------------------------------------------------
@@ -95,6 +116,7 @@ sensor:
     water_temp:     { name: "SWG Water Temp" }   # reported in °F
     output_percent: { name: "SWG Output (actual)" }  # cell-reported generation %
     set_percent:    { name: "SWG Set Percent" }  # last commanded %
+    boost_remaining: { name: "SWG Boost Remaining" }  # minutes left in an active boost
     status:         { name: "SWG Status" }
     error:          { name: "SWG Error" }        # raw alarm bitmask (see below)
 

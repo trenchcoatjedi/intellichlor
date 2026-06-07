@@ -18,13 +18,15 @@ in this repo; it is compiled by ESPHome inside a consuming project.
 
 ```
 components/intellichlor/
-  __init__.py                     # hub component: config schema, UART + flow-control pin
-  intellichlor.h / .cpp           # core logic: framing, send queue, RX parser, polling
-  sensor.py                       # salt_ppm, water_temp, output_percent, status, error, set_percent
+  __init__.py                     # hub component: config schema, UART + flow-control pin, time_id
+  intellichlor.h / .cpp           # core logic: framing, send queue, RX parser, polling, boost timer
+  sensor.py                       # salt_ppm, water_temp, output_percent, status, error, set_percent, boost_remaining
   binary_sensor.py                # fault bits (no_flow, low_salt, ... check_pcb)
   text_sensor.py                  # version, firmware_version
   number/                         # swg_percent (0-100%, the writable output setpoint)
   switch/                         # takeover_mode (enable/disable controller takeover)
+  select/                         # swg_boost (Off/6h/12h/24h/48h boost selector)
+  button/                         # end_boost (cancel an active boost early)
   notes.txt                       # raw protocol capture / reverse-engineering notes
 README.md                         # one line
 ```
@@ -185,6 +187,15 @@ raw value is always available via the `error` sensor, so a consumer can decode i
   value via an `ESPPreferenceObject` (saved in `control()`, restored in `setup()`), so the
   commanded output % survives a reboot/OTA instead of resetting to 0. Its setup priority is
   one above the parent's so the restored value is in place before the first poll reads it.
+- **Boost:** the `swg_boost` select (Off/6h/12h/24h/48h) calls `start_boost(hours)` /
+  `cancel_boost()` on the hub; the `end_boost` button and selecting `Off` both cancel. While
+  `boost_active_`, `read_all_info()` sends `set_percent_(100)` instead of `swg_percent` — but
+  only inside the takeover-on branch, so **boost has no effect unless takeover is ON** (it
+  never toggles the switch; it logs a warning if armed while off). `loop()` runs `tick_boost_()`
+  (expiry → `cancel_boost()`, plus a minute-resolution `boost_remaining` sensor). The boost
+  end-time is mirrored to flash as an absolute epoch (`BoostPref`, guarded by `#ifdef USE_TIME`
+  + the optional `time_id`); `try_restore_boost_()` resumes it after a reboot once the RTC is
+  valid. Without a `time_id`/`USE_TIME`, boost is a millis() timer that cancels on reboot.
 
 ## Previously-fixed bugs (history / context)
 
