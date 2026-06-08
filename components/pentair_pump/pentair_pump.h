@@ -8,6 +8,7 @@
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/switch/switch.h"
+#include "esphome/components/select/select.h"
 
 #include <queue>
 #include <vector>
@@ -34,7 +35,9 @@ class PentairPump : public PollingComponent, public uart::UARTDevice {
   SUB_SENSOR(status_code)    // data[10] (error/alarm byte)
   SUB_BINARY_SENSOR(running)
   SUB_TEXT_SENSOR(last_status)  // full hex of the last status reply
+  SUB_SWITCH(takeover)          // master enable: actively control vs monitor-only
   SUB_SWITCH(run)
+  SUB_SELECT(mode)              // "Speed (RPM)" vs "Flow (GPM)" setpoint mode
   SUB_NUMBER(target_rpm)
   SUB_NUMBER(target_gpm)
 
@@ -52,6 +55,8 @@ class PentairPump : public PollingComponent, public uart::UARTDevice {
   void set_target_rpm(float rpm);
   void set_target_gpm(float gpm);
   void set_run_state(bool run);
+  void set_takeover(bool enable);
+  void set_control_mode(const std::string &mode);
 
  protected:
   void enqueue_frame_(uint8_t cmd, const std::vector<uint8_t> &data);
@@ -62,8 +67,9 @@ class PentairPump : public PollingComponent, public uart::UARTDevice {
   uint8_t source_{0x10};
   uint16_t target_rpm_{1500};
   uint8_t target_gpm_{0};
-  bool gpm_mode_{false};
+  bool flow_mode_{false};  // false = Speed (RPM), true = Flow (GPM)
   bool run_{false};
+  bool takeover_{false};
 
   std::vector<uint8_t> buf_;
   std::queue<std::vector<uint8_t>> send_queue_;
@@ -89,6 +95,26 @@ class PentairPumpRunSwitch : public switch_::Switch {
 
  protected:
   void write_state(bool state) override;
+  PentairPump *parent_{nullptr};
+};
+
+// Takeover switch: ON = the ESP actively controls the pump; OFF = monitor only.
+class PentairPumpTakeoverSwitch : public switch_::Switch {
+ public:
+  void set_parent(PentairPump *parent) { this->parent_ = parent; }
+
+ protected:
+  void write_state(bool state) override;
+  PentairPump *parent_{nullptr};
+};
+
+// Setpoint-mode select: choose whether the run command targets RPM or GPM.
+class PentairPumpModeSelect : public select::Select {
+ public:
+  void set_parent(PentairPump *parent) { this->parent_ = parent; }
+
+ protected:
+  void control(const std::string &value) override;
   PentairPump *parent_{nullptr};
 };
 

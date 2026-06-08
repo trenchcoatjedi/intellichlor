@@ -96,6 +96,8 @@ number:
 switch:
   - platform: pentair_pump
     pentair_pump_id: comp_pump
+    takeover:
+      name: "Pump Takeover"
     run:
       name: "Pump Run"
 
@@ -116,3 +118,7 @@ select:
     intellichlor_id: comp_intellichlor
     swg_boost:
       name: "SWG Boost"
+  - platform: pentair_pump
+    pentair_pump_id: comp_pump
+    mode:
+      name: "Pump Control Mode"

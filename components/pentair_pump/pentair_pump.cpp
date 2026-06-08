@@ -22,6 +22,10 @@ void PentairPump::setup() {
     this->run_switch_->publish_state(this->run_);
   if (this->target_rpm_number_ != nullptr)
     this->target_rpm_number_->publish_state(this->target_rpm_);
+  // Default the mode select to Speed (RPM) if nothing has set it yet.
+  if (this->mode_select_ != nullptr && !this->mode_select_->has_state() &&
+      !this->mode_select_->traits.get_options().empty())
+    this->mode_select_->publish_state(this->mode_select_->traits.get_options().front());
 }
 
 void PentairPump::loop() {
@@ -48,19 +52,25 @@ void PentairPump::loop() {
 }
 
 void PentairPump::update() {
-  // Queue (don't blast) one command cycle: hold remote control, drive the
-  // speed/run state, then request status.
-  this->enqueue_frame_(0x04, {0xFF});  // remote control ON (keep-alive)
-  if (this->run_) {
-    uint8_t hi = (this->target_rpm_ >> 8) & 0xFF;
-    uint8_t lo = this->target_rpm_ & 0xFF;
-    this->enqueue_frame_(0x01, {0x02, 0xC4, hi, lo});  // set RPM (register 0x02C4)
-    if (this->gpm_mode_ && this->target_gpm_ > 0)
-      this->enqueue_frame_(0x01, {0x02, 0xE4, 0x00, this->target_gpm_});  // set GPM (best-effort)
-    this->enqueue_frame_(0x06, {0x0A});  // run
-  } else {
-    this->enqueue_frame_(0x06, {0x04});  // stop
+  // Only assert control when takeover is enabled; otherwise we are a passive
+  // monitor (and let the pump's own panel / another controller run it).
+  if (this->takeover_) {
+    this->enqueue_frame_(0x04, {0xFF});  // remote control ON (keep-alive)
+    if (this->run_) {
+      if (this->flow_mode_) {
+        this->enqueue_frame_(0x01, {0x02, 0xE4, 0x00, this->target_gpm_});  // set GPM (flow)
+      } else {
+        uint8_t hi = (this->target_rpm_ >> 8) & 0xFF;
+        uint8_t lo = this->target_rpm_ & 0xFF;
+        this->enqueue_frame_(0x01, {0x02, 0xC4, hi, lo});  // set RPM (register 0x02C4)
+      }
+      this->enqueue_frame_(0x06, {0x0A});  // run
+    } else {
+      this->enqueue_frame_(0x06, {0x04});  // stop
+    }
   }
+  // Always poll status so the RPM/watts/etc. sensors update whether or not we
+  // are the one driving the pump.
   this->enqueue_frame_(0x07, {});  // status request
 }
 
@@ -180,15 +190,32 @@ void PentairPump::set_target_gpm(float gpm) {
   if (gpm < 0)
     gpm = 0;
   this->target_gpm_ = (uint8_t) gpm;
-  this->gpm_mode_ = true;
   if (this->target_gpm_number_ != nullptr)
     this->target_gpm_number_->publish_state(gpm);
+}
+
+void PentairPump::set_control_mode(const std::string &mode) {
+  // Anything mentioning flow/gpm selects flow mode; otherwise speed (rpm).
+  this->flow_mode_ = mode.find("GPM") != std::string::npos || mode.find("Flow") != std::string::npos ||
+                     mode.find("gpm") != std::string::npos || mode.find("flow") != std::string::npos;
+  if (this->mode_select_ != nullptr)
+    this->mode_select_->publish_state(mode);
 }
 
 void PentairPump::set_run_state(bool run) {
   this->run_ = run;
   if (this->run_switch_ != nullptr)
     this->run_switch_->publish_state(run);
+}
+
+void PentairPump::set_takeover(bool enable) {
+  this->takeover_ = enable;
+  if (this->takeover_switch_ != nullptr)
+    this->takeover_switch_->publish_state(enable);
+  if (!enable) {
+    // Hand control back to the pump's local panel / external controller.
+    this->enqueue_frame_(0x04, {0x00});  // remote control OFF
+  }
 }
 
 void PentairPump::dump_config() {
@@ -215,6 +242,20 @@ void PentairPumpRunSwitch::write_state(bool state) {
     this->parent_->set_run_state(state);  // hub publishes back to this switch
   else
     this->publish_state(state);
+}
+
+void PentairPumpTakeoverSwitch::write_state(bool state) {
+  if (this->parent_ != nullptr)
+    this->parent_->set_takeover(state);  // hub publishes back to this switch
+  else
+    this->publish_state(state);
+}
+
+void PentairPumpModeSelect::control(const std::string &value) {
+  if (this->parent_ != nullptr)
+    this->parent_->set_control_mode(value);  // hub publishes back to this select
+  else
+    this->publish_state(value);
 }
 
 }  // namespace pentair_pump

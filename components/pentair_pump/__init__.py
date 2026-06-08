@@ -5,7 +5,7 @@ from esphome.const import CONF_ADDRESS, CONF_ID
 
 CODEOWNERS = ["@wolfson292"]
 DEPENDENCIES = ["uart"]
-AUTO_LOAD = ["sensor", "binary_sensor", "text_sensor", "number", "switch"]
+AUTO_LOAD = ["sensor", "binary_sensor", "text_sensor", "number", "switch", "select"]
 MULTI_CONF = True
 
 pentair_pump_ns = cg.esphome_ns.namespace("pentair_pump")
