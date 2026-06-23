@@ -50,8 +50,6 @@ class PentairPump : public PollingComponent, public uart::UARTDevice {
 
   void set_address(uint8_t a) { this->address_ = a; }
   void set_source_address(uint8_t a) { this->source_ = a; }
-  // Minimum bus-idle time (no RX) required before we transmit (0 = disabled).
-  void set_idle_before_tx(uint32_t ms) { this->idle_before_tx_ms_ = ms; }
 
   // Called by the sub-entities (number control / switch write_state).
   void set_target_rpm(float rpm);
@@ -76,8 +74,6 @@ class PentairPump : public PollingComponent, public uart::UARTDevice {
   std::vector<uint8_t> buf_;
   std::queue<std::vector<uint8_t>> send_queue_;
   uint32_t last_send_{0};
-  uint32_t last_rx_ms_{0};        // millis() of the last byte seen on the bus
-  uint32_t idle_before_tx_ms_{0}; // require this much bus-idle before transmitting
 };
 
 // Writable number that pushes its value back into the hub.  kind: 0 = RPM, 1 = GPM.

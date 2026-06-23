@@ -16,7 +16,6 @@ PentairPump = pentair_pump_ns.class_(
 # Shared by the platform files (sensor.py, switch.py, ...).
 CONF_PENTAIR_PUMP_ID = "pentair_pump_id"
 CONF_SOURCE_ADDRESS = "source_address"
-CONF_IDLE_BEFORE_TX = "idle_before_tx"
 
 CONFIG_SCHEMA = (
     cv.Schema(
@@ -24,11 +23,6 @@ CONFIG_SCHEMA = (
             cv.GenerateID(): cv.declare_id(PentairPump),
             cv.Optional(CONF_ADDRESS, default=0x60): cv.hex_uint8_t,
             cv.Optional(CONF_SOURCE_ADDRESS, default=0x10): cv.hex_uint8_t,
-            # Wait for this much bus-idle (no RX) before transmitting, so the
-            # pump master yields to the SWG / other devices on a shared bus.
-            cv.Optional(
-                CONF_IDLE_BEFORE_TX, default="25ms"
-            ): cv.positive_time_period_milliseconds,
         }
     )
     .extend(cv.polling_component_schema("2s"))
@@ -42,4 +36,3 @@ async def to_code(config):
     await uart.register_uart_device(var, config)
     cg.add(var.set_address(config[CONF_ADDRESS]))
     cg.add(var.set_source_address(config[CONF_SOURCE_ADDRESS]))
-    cg.add(var.set_idle_before_tx(config[CONF_IDLE_BEFORE_TX].total_milliseconds))

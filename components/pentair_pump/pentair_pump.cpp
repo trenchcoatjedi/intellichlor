@@ -29,30 +29,20 @@ void PentairPump::setup() {
 }
 
 void PentairPump::loop() {
-  // RX: accumulate bytes and parse complete A5 frames. The splitter feeds us a
-  // copy of EVERY byte on the bus (pump + SWG + ...), so tracking the last RX
-  // time lets us sense when the whole bus is idle.
+  // RX: accumulate bytes and parse complete A5 frames.
   uint8_t b;
-  bool got = false;
   while (this->available()) {
     if (!this->read_byte(&b))
       break;
     this->buf_.push_back(b);
     if (this->buf_.size() > MAX_BUF)
       this->buf_.erase(this->buf_.begin());
-    got = true;
   }
-  if (got)
-    this->last_rx_ms_ = millis();
   this->parse_buffer_();
 
-  // Idle-before-TX pacing: only transmit when the bus has been quiet (no RX) for
-  // idle_before_tx_ms_, so we never collide with a SWG (or other) exchange in
-  // progress. Combined with the per-send gap, this makes us a polite citizen on
-  // the shared bus and yields to the IntelliChlor.
-  bool bus_idle =
-      this->idle_before_tx_ms_ == 0 || (millis() - this->last_rx_ms_) >= this->idle_before_tx_ms_;
-  if (!this->send_queue_.empty() && (millis() - this->last_send_) > SEND_GAP_MS && bus_idle) {
+  // TX: one queued frame per gap (each write+flush is short, well under the
+  // 30 ms loop budget; never blast a burst).
+  if (!this->send_queue_.empty() && (millis() - this->last_send_) > SEND_GAP_MS) {
     auto &f = this->send_queue_.front();
     this->write_array(f);
     this->flush();
@@ -232,7 +222,6 @@ void PentairPump::dump_config() {
   ESP_LOGCONFIG(TAG, "Pentair Pump:");
   ESP_LOGCONFIG(TAG, "  Pump address: 0x%02X", this->address_);
   ESP_LOGCONFIG(TAG, "  Controller address: 0x%02X", this->source_);
-  ESP_LOGCONFIG(TAG, "  Idle before TX: %u ms", this->idle_before_tx_ms_);
   this->check_uart_settings(9600);
 }
 
