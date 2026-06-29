@@ -20,7 +20,7 @@ CONFIG_SCHEMA = {
         device_class=DEVICE_CLASS_SWITCH,
         entity_category=ENTITY_CATEGORY_CONFIG,
         icon=ICON_PULSE,
-        default_restore_mode="RESTORE_DEFAULT_OFF",
+        default_restore_mode="RESTORE_DEFAULT_ON",
     ),
 }
 
