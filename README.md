@@ -43,6 +43,7 @@ See image below for completed example.
 - Supermini Ground to MAX485 GND
 - MAX485 "B" to PC100 Power Center terminal block that corresponds to "Green" on PC100 PCB silkscreen
 - MAX485 "A" to PC100 Power Center terminal block that corresponds to "Yellow" on PC100 PCB silkscreen
+- USB-C to Supermini for power
 ---
 
 ## Quick start
