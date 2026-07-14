@@ -26,6 +26,8 @@ An [ESPHome](https://esphome.io/) device using an external component for talking
 
 ## Build
 
+See image below for completed example.
+
 - Cut off the RE pin from the MAX485
 - Bridge the RE and DE pins on the MAX485 with solder
 - Solder MAX485 DI pin to Supermini GPIO0
@@ -33,7 +35,7 @@ An [ESPHome](https://esphome.io/) device using an external component for talking
 - Solder MAX485 RO pin to Supermini GPIO3
 - Solder pins to Supermini 5V and Ground
 
-[unit.jpg]
+![soldered boards](unit.jpg)
 
 ## Wiring
 
