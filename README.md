@@ -1,6 +1,6 @@
 # IntelliChlor ESPHome Component for Pentair PC100 Power Center
 
-An [ESPHome](https://esphome.io/) device using an external component for talking to a **Pentair PC100 Power Center** over RS-485 and exposing it to Home Assistant — without a Pentair automation panel (EasyTouch / IntelliCenter). Forked from 
+An [ESPHome](https://esphome.io/) device using an external component for talking to a **Pentair PC100 Power Center** over RS-485 and exposing it to Home Assistant — without a Pentair automation panel (EasyTouch / IntelliCenter). Forked from [wolfson292](https://github.com/wolfson292/intellichlor)
 
 | Component | What it does |
 |-----------|--------------|
