@@ -4,7 +4,7 @@ An [ESPHome](https://esphome.io/) device using an external component for talking
 
 | Component | What it does |
 |-----------|--------------|
-| [`intellichlor`](#intellichlor) | Read & control a Pentair **IntelliChlor / iChlor** salt chlorine generator (SWG): salt level, water temp, faults, and the chlorine output %. The original component has "takeover mode" disabled at boot however without this mode, the component is unable to read most of the flags from the SCG passively. The YAML modifies this code to enable this mode at boot. |
+| [`intellichlor`](#intellichlor) | Read & control a Pentair **IntelliChlor / iChlor** salt chlorine generator (SWG): salt level, water temp, faults, and the chlorine output %. The original component has "takeover mode" disabled at boot however without this mode, the component is unable to read most of the flags from the SCG passively. The YAML modifies this code to enable this mode at boot. The YAML also adds a deep sleep component and trigger button if you'd like to sleep the ESP32 when the SCG is powered down. |
 
 ---
 
