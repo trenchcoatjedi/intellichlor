@@ -97,6 +97,7 @@ button:
     intellichlor_id: swg
     end_boost:
       name: "SWG End Boost"       # cancel an active boost early (same as selecting "Off")
+# Optional Deep Sleep button
   - platform: template
     id: sleep_button
     name: "Enter Deep Sleep"
@@ -105,9 +106,9 @@ button:
         - deep_sleep.enter:
              id: dsl
 
-
+# Optional Deep Sleep component
 deep_sleep:
-  sleep_duration: 11h
+  sleep_duration: 11h  
   id: dsl
 # -----------------------------------------------------------------------------
 #  Sensors
