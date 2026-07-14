@@ -1,67 +1,59 @@
-# =============================================================================
-#  Example ESPHome configuration for the IntelliChlor RS-485 component
-#
-#  Drop this component into your own ESPHome project to talk to a Pentair
-#  IntelliChlor / iChlor salt chlorine generator (SWG) over RS-485. The ESP
-#  can passively monitor an existing Pentair controller, or impersonate it
-#  ("takeover mode") to set the chlorine output % directly.
-#
-#  Copy the blocks you need into your device YAML and adjust pins/secrets.
-#  Every entity is optional — delete the ones you don't want.
-# =============================================================================
-
 esphome:
-  name: pool-swg
+  name: "chlorinator"
+  friendly_name: Chlorinator
+  on_boot: 
+    then:
+      - switch.turn_on: takeover
 
 esp32:
-  board: esp32-s3-devkitc-1
+  board: esp32-c3-devkitm-1
   framework:
     type: esp-idf
 
-logger:
-  level: DEBUG          # bump to VERBOSE to see per-byte RS-485 parsing
 
+# Enable logging
+logger:
+  level: DEBUG
+  
+# Enable Home Assistant API
 api:
+  encryption:
+    key: "encryption_key"
+
 ota:
   - platform: esphome
+    password: "ota_password"
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  output_power: 8.5db
 
-# A time source is optional, but lets the "boost" feature survive a reboot/OTA
-# (the boost end-time is stored in flash as an absolute timestamp).
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Chlorinator Fallback Hotspot"
+    password: "hotspot_password"
+
+captive_portal:
+
+# Intellichlor
 time:
   - platform: sntp
     id: sntp_time
+    timezone: Your/Timezone
+    servers:
+     - your.ntp.server
 
-# -----------------------------------------------------------------------------
-#  RS-485 bus to the IntelliChlor cell
-#
-#  The IntelliChlor wire format is 9600 8N1 — parity NONE and stop_bits 1 are
-#  REQUIRED (the component enforces this at validation time).
-# -----------------------------------------------------------------------------
 uart:
   id: swg_uart
-  tx_pin: GPIO17          # -> RS-485 transceiver DI
-  rx_pin: GPIO18          # <- RS-485 transceiver RO
+  tx_pin: GPIO0          # -> RS-485 transceiver DI
+  rx_pin: GPIO3          # <- RS-485 transceiver RO
   baud_rate: 9600
   parity: NONE
   stop_bits: 1
-  # debug:                # OK to dump bus traffic to the log, BUT...
-  #   direction: BOTH
-  #   # !!! Do NOT set `dummy_receiver: true` here. It makes the debug helper
-  #   #     consume the RX bytes itself, starving the intellichlor component so
-  #   #     every poll "times out" while the log still shows clean <<< frames.
 
-# -----------------------------------------------------------------------------
-#  Pull in the component
-#
-#  ESPHome caches external_components; if you don't see updates after a rebuild,
-#  lower `refresh` (or clear .esphome/) so it re-pulls.
-# -----------------------------------------------------------------------------
 external_components:
-  - source: github://wolfson292/intellichlor
+  - source: github://trenchcoatjedi/intellichlor
     components: [intellichlor]
     refresh: 1d
 
@@ -71,9 +63,8 @@ external_components:
 intellichlor:
   id: swg
   uart_id: swg_uart
-  # flow_control_pin: GPIO8   # optional: DE/!RE pin for a half-duplex RS-485
-  #                           # transceiver (tie DE+!RE together, drive with one GPIO)
-  time_id: sntp_time          # optional: enables boost persistence across reboot
+  flow_control_pin: GPIO1   # RS-485 transciever DE bridged to RE
+  time_id: sntp_time          
   update_interval: 60s
 
 # -----------------------------------------------------------------------------
@@ -91,6 +82,7 @@ switch:
     intellichlor_id: swg
     takeover_mode:
       name: "SWG Takeover"        # ON = ESP drives the cell; OFF = passive monitor
+      id: takeover
 
 # Boost: temporarily run the cell at 100% for a fixed time, then auto-revert to
 # swg_percent. Boost only drives the cell while Takeover is ON.
@@ -105,7 +97,18 @@ button:
     intellichlor_id: swg
     end_boost:
       name: "SWG End Boost"       # cancel an active boost early (same as selecting "Off")
+  - platform: template
+    id: sleep_button
+    name: "Enter Deep Sleep"
+    on_press:
+      then:
+        - deep_sleep.enter:
+             id: dsl
 
+
+deep_sleep:
+  sleep_duration: 11h
+  id: dsl
 # -----------------------------------------------------------------------------
 #  Sensors
 # -----------------------------------------------------------------------------
@@ -148,3 +151,4 @@ text_sensor:
     intellichlor_id: swg
     version:          { name: "SWG Model" }      # model string, e.g. "Intellichlor--40"
     firmware_version: { name: "SWG Firmware" }   # cell firmware, e.g. "1.8"
+
