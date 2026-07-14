@@ -33,6 +33,8 @@ An [ESPHome](https://esphome.io/) device using an external component for talking
 - Solder MAX485 RO pin to Supermini GPIO3
 - Solder pins to Supermini 5V and Ground
 
+[unit.jpg]
+
 ## Wiring
 
 - Supermini 5V to MAX485 VCC
